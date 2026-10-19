@@ -54,6 +54,25 @@ button{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.2);
 .empty{text-align:center;padding:28px;color:#b0bfd5}
 footer{margin-top:25px;font-size:12px;color:#a5b4ca;line-height:1.6}
 </style>
+
+ 
+<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+<script>
+window.OneSignalDeferred = window.OneSignalDeferred || [];
+OneSignalDeferred.push(async function(OneSignal) {
+  await OneSignal.init({
+    appId: "d0d9dad0-58d0-43d6-95ec-a25ea2cb32d8",
+    serviceWorkerPath: "OneSignalSDKWorker.js",
+    serviceWorkerParam: {
+      scope: "/btc-5min-alerts/"
+    },
+    notifyButton: {
+      enable: true
+    }
+  });
+});
+</script>
+
 </head>
 <body>
 <main>
