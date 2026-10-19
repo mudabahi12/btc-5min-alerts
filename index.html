@@ -1,0 +1,269 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1222">
+<title>BTC Pulse • Polymarket</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;min-height:100vh;color:#f6f8ff;
+ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+ background:radial-gradient(ellipse at 15% 5%,#24467b 0%,transparent 45%),
+ radial-gradient(ellipse at 95% 35%,#29315e 0%,transparent 45%),#0b1222;
+ background-attachment:fixed
+}
+main{max-width:760px;margin:auto;padding:24px 16px 70px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+h1{font-size:26px;margin:0;letter-spacing:-.7px}
+h2{font-size:21px;margin:0}
+p{margin:7px 0}
+.muted{color:#b0bfd5;font-size:13px}
+.glass{
+ background:rgba(255,255,255,.075);
+ border:1px solid rgba(255,255,255,.17);
+ box-shadow:0 12px 38px rgba(0,0,0,.16);
+ backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+ border-radius:23px;padding:20px
+}
+.hero{margin-bottom:22px}
+.pill{border-radius:50px;background:rgba(79,218,157,.15);
+ color:#6be8b0;padding:7px 11px;font-size:12px}
+.timer{font-size:48px;font-weight:750;letter-spacing:-2px;margin:12px 0}
+.prices{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.price{border-radius:16px;padding:16px;background:rgba(255,255,255,.06)}
+.price strong{font-size:31px;display:block;margin-top:8px}
+.up{color:#6be8b0}.down{color:#ff9cad}
+a{color:inherit}
+.button{display:block;text-align:center;background:#377cf1;padding:14px;
+ border-radius:13px;text-decoration:none;font-weight:650}
+.section{display:flex;justify-content:space-between;align-items:center;
+ margin:25px 2px 14px;gap:10px}
+.market{margin-bottom:11px;padding:17px}
+.market h3{font-size:15px;line-height:1.45;margin:0 0 10px}
+.market .meta{display:flex;justify-content:space-between;gap:10px;
+ flex-wrap:wrap;margin-bottom:12px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{padding:8px 11px;background:rgba(255,255,255,.09);
+ border-radius:12px;font-size:13px}
+.market a{display:inline-block;margin-top:12px;color:#9fc5ff;font-size:13px}
+button{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.2);
+ color:white;border-radius:12px;padding:10px 13px;cursor:pointer}
+.empty{text-align:center;padding:28px;color:#b0bfd5}
+footer{margin-top:25px;font-size:12px;color:#a5b4ca;line-height:1.6}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <div>
+  <h1>₿ BTC Pulse</h1>
+  <p class="muted">Polymarket Bitcoin dashboard</p>
+ </div>
+ <span class="pill">● LIVE DATA</span>
+</header>
+
+<section class="glass hero">
+ <p class="muted">CURRENT 5-MINUTE ROUND</p>
+ <h2 id="title">Loading Bitcoin market...</h2>
+ <p class="muted" style="margin-top:18px">Next round starts in</p>
+ <div class="timer" id="timer">--:--</div>
+ <div class="prices">
+  <div class="price">
+   <span class="up">↗ UP</span>
+   <strong id="up">--</strong>
+  </div>
+  <div class="price">
+   <span class="down">↘ DOWN</span>
+   <strong id="down">--</strong>
+  </div>
+ </div>
+ <a id="roundLink" class="button" href="https://polymarket.com"
+ target="_blank" rel="noopener">Open on Polymarket ↗</a>
+ <p id="roundStatus" class="muted" style="margin-top:14px">Connecting...</p>
+</section>
+
+<div class="section">
+ <div>
+  <h2>Bitcoin markets</h2>
+  <p class="muted">Scheduled to end in the next 24 hours</p>
+ </div>
+ <button id="refresh">↻ Refresh</button>
+</div>
+
+<div id="list"><div class="glass empty">Loading markets...</div></div>
+<p id="listStatus" class="muted"></p>
+<footer>
+ Prices are indicative outcome prices, not executable buy quotes.
+ Markets are filtered by their scheduled end date, which does not
+ guarantee the actual resolution time. No automatic trading.
+ The list uses paginated public API results and may be incomplete.
+</footer>
+</main>
+
+<script>
+const BASE="https://gamma-api.polymarket.com";
+const $=id=>document.getElementById(id);
+let roundStart=-1;
+let roundBusy=false;
+let listBusy=false;
+
+function arrayOf(value){
+ if(Array.isArray(value))return value;
+ try{return JSON.parse(value||"[]")}catch{return []}
+}
+function cents(v){
+ const n=Number(v);
+ return v===undefined||v===null||v===""||!Number.isFinite(n)
+  ?"—":(n*100).toFixed(1)+"¢";
+}
+function pricesOf(m){
+ const outcomes=arrayOf(m.outcomes);
+ const prices=arrayOf(m.outcomePrices);
+ return outcomes.map((name,i)=>({name:String(name),price:cents(prices[i])}));
+}
+function remaining(ms){
+ if(ms<=0)return "Ended";
+ const minutes=Math.ceil(ms/60000);
+ if(minutes<60)return minutes+"m left";
+ const hours=Math.floor(minutes/60);
+ return hours+"h "+(minutes%60)+"m left";
+}
+function isBitcoin(m){
+ const text=[m.question,m.slug,...(m.events||[]).map(e=>e.title)]
+  .filter(Boolean).join(" ").toLowerCase();
+ return /\b(bitcoin|btc)\b/.test(text)||/btc-updown/.test(text);
+}
+function marketURL(m){
+ const eventSlug=m.events?.[0]?.slug;
+ return "https://polymarket.com/event/"+
+  encodeURIComponent(eventSlug||m.slug||"");
+}
+function countdown(){
+ const now=Math.floor(Date.now()/1000);
+ const next=(Math.floor(now/300)+1)*300;
+ const s=next-now;
+ $("timer").textContent=
+  String(Math.floor(s/60)).padStart(2,"0")+":"+
+  String(s%60).padStart(2,"0");
+ const r=Math.floor(now/300)*300;
+ if(r!==roundStart){
+  roundStart=r;
+  $("up").textContent="--";
+  $("down").textContent="--";
+  loadRound();
+ }
+}
+async function loadRound(){
+ if(roundBusy)return;
+ roundBusy=true;
+ const r=roundStart;
+ const slug="btc-updown-5m-"+r;
+ $("roundLink").href="https://polymarket.com/event/"+slug;
+ try{
+  const response=await fetch(BASE+"/events/slug/"+slug,{cache:"no-store"});
+  if(!response.ok)throw Error("HTTP "+response.status);
+  const e=await response.json();
+  if(roundStart!==r)return;
+  const m=e.markets?.[0];
+  if(!m)throw Error("Market not yet available");
+  $("title").textContent=e.title||m.question||"Bitcoin Up or Down";
+  const p=pricesOf(m);
+  $("up").textContent=p.find(x=>x.name.toLowerCase()==="up")?.price||"—";
+  $("down").textContent=p.find(x=>x.name.toLowerCase()==="down")?.price||"—";
+  $("roundStatus").textContent="Updated "+new Date().toLocaleTimeString();
+ }catch(err){
+  if(roundStart===r)$("roundStatus").textContent="Market unavailable: "+err.message;
+ }finally{roundBusy=false}
+}
+function makeMarket(m){
+ const card=document.createElement("article");
+ card.className="glass market";
+ const heading=document.createElement("h3");
+ heading.textContent=m.question||"Bitcoin market";
+ card.appendChild(heading);
+
+ const meta=document.createElement("div");
+ meta.className="meta muted";
+ const left=document.createElement("span");
+ left.textContent=remaining(new Date(m.endDate).getTime()-Date.now());
+ const right=document.createElement("span");
+ right.textContent="Ends "+new Date(m.endDate).toLocaleString();
+ meta.append(left,right);card.appendChild(meta);
+
+ const chips=document.createElement("div");
+ chips.className="chips";
+ for(const p of pricesOf(m).slice(0,4)){
+  const chip=document.createElement("span");
+  chip.className="chip";
+  chip.textContent=p.name+": "+p.price;
+  chips.appendChild(chip);
+ }
+ card.appendChild(chips);
+
+ const link=document.createElement("a");
+ link.href=marketURL(m);
+ link.target="_blank";link.rel="noopener";
+ link.textContent="View market ↗";
+ card.appendChild(link);
+ return card;
+}
+async function loadList(){
+ if(listBusy)return;
+ listBusy=true;
+ $("listStatus").textContent="Refreshing Bitcoin markets...";
+ try{
+  const now=new Date();
+  const end=new Date(now.getTime()+24*3600000);
+  const params=new URLSearchParams({
+   active:"true",closed:"false",
+   end_date_min:now.toISOString(),
+   end_date_max:end.toISOString(),
+   order:"endDate",ascending:"true",limit:"100"
+  });
+  const results=[];
+  const seen=new Set();
+  const maxPages=10;
+  for(let page=0;page<maxPages;page++){
+   params.set("offset",String(page*100));
+   const response=await fetch(BASE+"/markets?"+params,{cache:"no-store"});
+   if(!response.ok)throw Error("HTTP "+response.status);
+   const batch=await response.json();
+   if(!Array.isArray(batch))throw Error("Unexpected API response");
+   for(const m of batch){
+    if(!isBitcoin(m)||seen.has(m.id))continue;
+    const endTime=Date.parse(m.endDate);
+    if(!(endTime>Date.now()&&endTime<=Date.now()+86400000))continue;
+    seen.add(m.id);results.push(m);
+   }
+   if(batch.length<100)break;
+  }
+  results.sort((a,b)=>Date.parse(a.endDate)-Date.parse(b.endDate));
+  const root=$("list");
+  root.replaceChildren();
+  if(!results.length){
+   const empty=document.createElement("div");
+   empty.className="glass empty";
+   empty.textContent="No matching Bitcoin markets found in the scanned results.";
+   root.appendChild(empty);
+  }else{
+   for(const m of results)root.appendChild(makeMarket(m));
+  }
+  $("listStatus").textContent=results.length+
+   " Bitcoin markets found • Updated "+new Date().toLocaleTimeString()+
+   " • Scanned up to "+maxPages*100+" markets";
+ }catch(err){
+  $("listStatus").textContent="Unable to refresh list: "+err.message;
+ }finally{listBusy=false}
+}
+$("refresh").addEventListener("click",loadList);
+countdown();
+loadList();
+setInterval(countdown,1000);
+setInterval(loadRound,10000);
+setInterval(loadList,60000);
+</script>
+</body>
+</html>
